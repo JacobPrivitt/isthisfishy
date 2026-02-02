@@ -1,0 +1,65 @@
+from dataclasses import dataclass
+from typing import List, Optional
+
+@dataclass
+class Analysis:
+    risk_score: int
+    risk_level: str
+    category: str
+    reasons: List[str]
+    recommended_actions: List[str]
+    explanation: str
+
+def analyze(input_type: str, input_value: str) -> Analysis:
+    """
+    Stub analyzer for "break ground" repo.
+    Replace this with a real model call later.
+    """
+    text = input_value.lower()
+
+    scam_signals = [
+        "gift card", "wire transfer", "crypto", "urgent", "act now", "verify your account",
+        "password", "ssn", "social security", "bank login", "one-time code", "otp", "microsoft support",
+        "refund", "invoice overdue", "click here", "limited time", "suspicious"
+    ]
+
+    hits = [s for s in scam_signals if s in text]
+    score = min(90, 15 + len(hits) * 12)
+
+    if score >= 70:
+        level = "high"
+    elif score >= 40:
+        level = "medium"
+    else:
+        level = "low"
+
+    category = "possible scam" if hits else "unknown"
+
+    reasons = []
+    if hits:
+        reasons.append(f"Matched scam keywords: {', '.join(hits[:6])}")
+    if input_type == "url" and any(x in text for x in ["bit.ly", "tinyurl", "t.co"]):
+        reasons.append("Shortened link can hide the real destination")
+
+    if not reasons:
+        reasons = ["No strong scam signals detected in this quick pass"]
+
+    actions = [
+        "Do not click links or reply with personal info",
+        "Verify using an official phone number or website you type in yourself",
+        "Ask a family member or caregiver to review before acting",
+    ]
+
+    explanation = (
+        "This is a quick risk check. It can be wrong. "
+        "If anything feels urgent or asks for money or codes, slow down and verify."
+    )
+
+    return Analysis(
+        risk_score=score,
+        risk_level=level,
+        category=category,
+        reasons=reasons,
+        recommended_actions=actions,
+        explanation=explanation,
+    )
