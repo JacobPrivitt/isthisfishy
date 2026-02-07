@@ -109,6 +109,15 @@ class RedeemResponse(BaseModel):
     status: Literal["active"]
 
 
+class ShareRequest(BaseModel):
+    analysis_result: dict
+    share_ttl_hours: int = Field(default=72, ge=1, le=720)
+
+
+class FamilyInviteRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+
+
 class AiRawResult(BaseModel):
     risk_level: Verdict
     confidence: Confidence
@@ -136,6 +145,9 @@ class FishyAssessment(BaseModel):
 
     safety_notes: List[str] = Field(default_factory=list)
     share_controls: dict = Field(default_factory=lambda: {"is_shareable": True, "default_share": False})
+    verdict_label: str = ""
+    next_action: str = ""
+    scam_type: str = ""
 
     @staticmethod
     def now_utc() -> datetime:

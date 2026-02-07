@@ -7,4 +7,4 @@ from app.db import init_db
 
 if __name__ == "__main__":
     init_db()
-    print("DB initialized (invites, checks, users, entitlements, license_keys, usage_counters)")
+    print("DB initialized (invites, checks, users, entitlements, license_keys, usage_counters, share_links, family_*)")

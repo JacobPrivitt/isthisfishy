@@ -100,3 +100,65 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS share_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token TEXT NOT NULL UNIQUE,
+                created_by_user_id INTEGER NOT NULL,
+                mode TEXT NOT NULL,
+                verdict TEXT NOT NULL,
+                confidence TEXT NOT NULL,
+                scam_type TEXT NOT NULL,
+                reasons_json TEXT NOT NULL,
+                next_action TEXT NOT NULL,
+                summary_text TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS family_groups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                owner_user_id INTEGER NOT NULL UNIQUE,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (owner_user_id) REFERENCES users(id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS family_members (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_id INTEGER NOT NULL,
+                member_email TEXT NOT NULL,
+                member_user_id INTEGER,
+                role TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (group_id) REFERENCES family_groups(id),
+                FOREIGN KEY (member_user_id) REFERENCES users(id),
+                UNIQUE(group_id, member_email)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS family_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_id INTEGER NOT NULL,
+                created_by_user_id INTEGER NOT NULL,
+                verdict TEXT NOT NULL,
+                confidence TEXT NOT NULL,
+                scam_type TEXT NOT NULL,
+                reasons_json TEXT NOT NULL,
+                next_action TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (group_id) REFERENCES family_groups(id),
+                FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+            )
+            """
+        )

@@ -28,6 +28,11 @@
           <button class="mode-btn" data-mode="shared" type="button">Shared</button>
           <button class="mode-btn" data-mode="family" type="button">Family</button>
         </div>
+        <div class="mode-copy">
+          <p><strong>Private:</strong> Just for you. Not saved or shared.</p>
+          <p><strong>Shared:</strong> Create a short summary you can send to someone you trust.</p>
+          <p><strong>Family:</strong> Let your family help you decide. Requires Family Protection.</p>
+        </div>
       </section>
 
       <section>
@@ -37,7 +42,8 @@
           rows="8"
           placeholder="Paste the message here (text, email, or chat)…"
         ></textarea>
-        <p id="privacyLine" class="privacy-line">Private mode: not saved, not shared.</p>
+        <p class="privacy-line">We do not save what you paste.</p>
+        <p id="modeReminder" class="privacy-line">Private mode: Just for you. Not saved or shared.</p>
       </section>
 
       <section class="actions">
@@ -54,6 +60,35 @@
           <button id="unlockBtn" class="secondary-btn" type="button">Unlock</button>
         </div>
         <p id="unlockStatus" class="unlock-status"></p>
+      </section>
+
+      <section id="sharedPanel" class="panel hidden">
+        <h2>Share Summary</h2>
+        <p>Create a short summary link without sharing the original pasted message.</p>
+        <div class="unlock-controls">
+          <button id="shareBtn" class="secondary-btn" type="button">Create Share Link</button>
+        </div>
+        <p id="shareStatus" class="unlock-status"></p>
+      </section>
+
+      <section id="familyPanel" class="panel hidden">
+        <h2>Family</h2>
+        <p>Family mode shares the result with your chosen family members. It does not share the message you pasted.</p>
+        <div class="unlock-controls">
+          <input id="familyEmailInput" type="email" placeholder="family@example.com" maxlength="254">
+          <button id="inviteBtn" class="secondary-btn" type="button">Invite</button>
+        </div>
+        <p id="familyStatus" class="unlock-status"></p>
+        <div class="family-columns">
+          <div>
+            <p><strong>Members</strong></p>
+            <ul id="familyMembersList"></ul>
+          </div>
+          <div>
+            <p><strong>Recent Family Events</strong></p>
+            <ul id="familyEventsList"></ul>
+          </div>
+        </div>
       </section>
 
       <section id="resultPanel" class="panel result hidden" aria-live="polite">
