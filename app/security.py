@@ -3,7 +3,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 
-from app.config import INVITE_REQUIRED
+from app.config import DEMO_AUTH_EMAIL, DEMO_AUTH_TOKEN, DEMO_AUTH_USER_ID, INVITE_REQUIRED, IS_PROD
 
 
 DEV_AUTH_HEADER = "Bearer dev"
@@ -27,8 +27,16 @@ def require_invite(invite_code: str | None) -> None:
 
 
 def get_auth_user_from_header(authorization: Optional[str]) -> Optional[AuthUser]:
+    if IS_PROD:
+        # Placeholder tokens are disabled in production.
+        return None
+
     if authorization == DEV_AUTH_HEADER:
         return AuthUser(clerk_user_id="dev_user", email="dev@local")
+
+    if DEMO_AUTH_TOKEN and authorization == f"Bearer {DEMO_AUTH_TOKEN}":
+        return AuthUser(clerk_user_id=DEMO_AUTH_USER_ID, email=DEMO_AUTH_EMAIL)
+
     return None
 
 

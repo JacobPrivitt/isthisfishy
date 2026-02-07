@@ -1,5 +1,6 @@
 param(
-    [string]$BaseUrl = "http://127.0.0.1:8000"
+    [string]$BaseUrl = "http://127.0.0.1:8000",
+    [string]$AuthToken = "dev"
 )
 
 $ErrorActionPreference = "Stop"
@@ -58,6 +59,7 @@ function Invoke-JsonRequest {
 
 Write-Host "== Smoke Test: License + Entitlement =="
 Write-Host "Base URL: $BaseUrl"
+Write-Host "Auth token source: -AuthToken"
 
 $health = Invoke-JsonRequest -Method "GET" -Url "$BaseUrl/health"
 if ($health.status -ne 200) {
@@ -82,7 +84,7 @@ Write-Host "[PASS] generated key: $licenseKey"
 $familyBefore = Invoke-JsonRequest `
     -Method "POST" `
     -Url "$BaseUrl/analyze" `
-    -Headers @{ Authorization = "Bearer dev" } `
+    -Headers @{ Authorization = "Bearer $AuthToken" } `
     -Body @{ mode = "family"; input_type = "text"; content_text = "smoke test before redeem" }
 
 if ($familyBefore.status -ne 402) {
@@ -110,7 +112,7 @@ Write-Host "[PASS] redeem requires auth (401)"
 $redeem = Invoke-JsonRequest `
     -Method "POST" `
     -Url "$BaseUrl/redeem" `
-    -Headers @{ Authorization = "Bearer dev" } `
+    -Headers @{ Authorization = "Bearer $AuthToken" } `
     -Body @{ license_key = $licenseKey }
 
 if ($redeem.status -ne 200) {
@@ -124,7 +126,7 @@ Write-Host "[PASS] redeem success, family entitlement active"
 $familyAfter = Invoke-JsonRequest `
     -Method "POST" `
     -Url "$BaseUrl/analyze" `
-    -Headers @{ Authorization = "Bearer dev" } `
+    -Headers @{ Authorization = "Bearer $AuthToken" } `
     -Body @{ mode = "family"; input_type = "text"; content_text = "smoke test after redeem" }
 
 if ($familyAfter.status -eq 402) {

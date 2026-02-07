@@ -2,6 +2,14 @@
 
 FastAPI + SQLite backend for scam-content analysis with a simple license-key paywall.
 
+## Placeholder auth (non-prod only)
+- `Authorization: Bearer dev` maps to `dev_user`.
+- Optional demo token from `.env`:
+  - `DEMO_AUTH_TOKEN=replace-me`
+  - `DEMO_AUTH_USER_ID=demo_user`
+  - `DEMO_AUTH_EMAIL=demo@local`
+- Set `ENV=prod` to disable all placeholder bearer auth (`dev` + demo token).
+
 ## Run locally
 ```bash
 python -m venv .venv
