@@ -2,17 +2,6 @@ fastapi==0.115.6
 uvicorn==0.32.1
 rq==1.16.2
 redis==5.2.1
-pydantic==2.10.3
+pydantic==2.12.5
 python-dotenv==1.0.1
-
-
-# Copy to .env and fill in
-ENV=dev
-DATABASE_PATH=./data/isthisfishy.db
-REDIS_URL=redis://localhost:6379/0
-
-# Simple shared secret for admin actions (rotate later)
-ADMIN_KEY=change-me
-
-# For beta invite gate
-INVITE_REQUIRED=true
+openai==1.58.1

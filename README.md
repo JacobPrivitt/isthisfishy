@@ -18,3 +18,4 @@ pip install -r requirements.txt
 
 copy .env.example .env  # Windows
 # cp .env.example .env  # macOS/Linux
+    

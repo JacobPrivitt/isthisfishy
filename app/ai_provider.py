@@ -17,6 +17,11 @@ from app.models import (
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
+
+class OpenAIProviderError(RuntimeError):
+    pass
+
+
 SYSTEM_INSTRUCTIONS = (
     "You are IsThisFishy, a calm second-opinion assistant that evaluates whether content is likely a scam. "
     "Be non-judgmental, avoid technical jargon, keep reasons short. "
@@ -129,23 +134,32 @@ def _fallback_ai_result(content_text: str) -> AiRawResult:
 
 def analyze_text(content_text: str) -> AiRawResult:
     if not OPENAI_API_KEY:
+        print("[analyze] provider=fallback reason=missing_openai_api_key")
         return _fallback_ai_result(content_text)
 
     schema = AiRawResult.model_json_schema()
+    schema_json = json.dumps(schema, ensure_ascii=True)
 
     try:
-        resp = client.responses.create(
+        print(f"[analyze] provider=openai model={OPENAI_MODEL}")
+        resp = client.chat.completions.create(
             model=OPENAI_MODEL,
-            instructions=SYSTEM_INSTRUCTIONS,
-            input=[{"role": "user", "content": f"Analyze this content:\n\n{content_text}"}],
-            text={
-                "format": {
-                    "type": "json_schema",
-                    "json_schema": {"name": "AiRawResult", "schema": schema, "strict": True},
-                }
-            },
+            messages=[
+                {"role": "system", "content": SYSTEM_INSTRUCTIONS},
+                {
+                    "role": "user",
+                    "content": (
+                        "Analyze the following text and return only JSON that validates against "
+                        f"this schema: {schema_json}\n\nText:\n{content_text}"
+                    ),
+                },
+            ],
+            response_format={"type": "json_object"},
         )
-        raw = resp.output_text
+        raw = (resp.choices[0].message.content or "").strip()
         return AiRawResult.model_validate_json(raw)
-    except Exception:
-        return _fallback_ai_result(content_text)
+    except Exception as e:
+        # Do not silently fall back when a key is configured.
+        msg = f"OpenAI request failed: {type(e).__name__}: {e}"
+        print(f"[analyze] provider=openai error={msg}")
+        raise OpenAIProviderError(msg) from e

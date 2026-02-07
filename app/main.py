@@ -1,23 +1,32 @@
 import json
 import uuid
+
 from fastapi import FastAPI, HTTPException, Header
 from redis import Redis
+from dotenv import load_dotenv
+load_dotenv()
 from rq import Queue
 
-from app.config import REDIS_URL, ADMIN_KEY, INVITE_REQUIRED
-from app.db import init_db, get_conn
-from app.models import SubmitRequest, SubmitResponse, CheckResult
-from app.security import utcnow_iso, require_invite
+from app.ai_provider import OpenAIProviderError, analyze_text
+from app.config import ADMIN_KEY, INVITE_REQUIRED, OPENAI_API_KEY, REDIS_URL
+from app.db import get_conn, init_db
+from app.models import AnalyzeRequest, CheckResult, FishyAssessment, InputType, PrimaryAction, SubmitRequest, SubmitResponse, Verdict
+from app.security import require_invite, utcnow_iso
 from app.tasks import process_check
+
 
 app = FastAPI(title="IsThisFishy API", version="0.1.0")
 
 redis_conn = Redis.from_url(REDIS_URL)
 queue = Queue("default", connection=redis_conn)
 
+
 @app.on_event("startup")
 def startup():
     init_db()
+    if not OPENAI_API_KEY:
+        print("WARNING: OPENAI_API_KEY is not set. /analyze will use fallback local analysis.")
+
 
 def _validate_invite(invite_code: str) -> None:
     with get_conn() as conn:
@@ -27,6 +36,7 @@ def _validate_invite(invite_code: str) -> None:
         if row["used_at"] is not None:
             raise ValueError("Invite code already used")
 
+
 def _mark_invite_used(invite_code: str) -> None:
     with get_conn() as conn:
         conn.execute(
@@ -34,9 +44,11 @@ def _mark_invite_used(invite_code: str) -> None:
             (utcnow_iso(), invite_code),
         )
 
+
 @app.get("/health")
 def health():
     return {"ok": True}
+
 
 @app.post("/submit", response_model=SubmitResponse)
 def submit(req: SubmitRequest):
@@ -56,7 +68,7 @@ def submit(req: SubmitRequest):
             INSERT INTO checks (id, created_at, status, input_type, input_value, invite_code)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (check_id, created_at, "queued", req.input_type, req.input_value, req.invite_code),
+            (check_id, created_at, "queued", req.input_type.value, req.input_value, req.invite_code),
         )
 
     if INVITE_REQUIRED and req.invite_code:
@@ -65,6 +77,7 @@ def submit(req: SubmitRequest):
     queue.enqueue(process_check, check_id)
 
     return SubmitResponse(check_id=check_id, status="queued")
+
 
 @app.get("/checks/{check_id}", response_model=CheckResult)
 def get_check(check_id: str):
@@ -90,6 +103,7 @@ def get_check(check_id: str):
         error=row["error"],
     )
 
+
 @app.post("/admin/invites")
 def create_invite(x_admin_key: str = Header(default="")):
     if x_admin_key != ADMIN_KEY:
@@ -102,3 +116,55 @@ def create_invite(x_admin_key: str = Header(default="")):
             (code, utcnow_iso(), None),
         )
     return {"invite_code": code}
+
+
+def _clamp(s: str, n: int) -> str:
+    s = (s or "").strip()
+    return s if len(s) <= n else s[: n - 1].rstrip() + "..."
+
+
+def _enforce_action_alignment(verdict: Verdict) -> PrimaryAction:
+    if verdict == Verdict.very_likely_scam:
+        return PrimaryAction.do_not_reply_or_pay
+    if verdict == Verdict.probably_legit:
+        return PrimaryAction.continue_carefully
+    return PrimaryAction.pause_and_verify
+
+
+@app.post("/analyze", response_model=FishyAssessment)
+def analyze_endpoint(req: AnalyzeRequest):
+    if req.input_type != InputType.text:
+        raise HTTPException(status_code=400, detail="MVP supports text only for now.")
+    if not req.content_text.strip():
+        raise HTTPException(status_code=400, detail="content_text is required.")
+
+    request_id = str(uuid.uuid4())
+
+    try:
+        ai_raw = analyze_text(req.content_text)
+    except OpenAIProviderError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    reasons = [_clamp(r, 120) for r in ai_raw.reasons][:3]
+    if not reasons:
+        reasons = ["Some details don't fully line up."]
+
+    ai_raw.recommended_next_step.primary_action = _enforce_action_alignment(ai_raw.risk_level)
+    ai_raw.recommended_next_step.supporting_text = _clamp(ai_raw.recommended_next_step.supporting_text, 180)
+
+    share_controls = {"is_shareable": True, "default_share": (req.mode.value != "private")}
+
+    return FishyAssessment(
+        request_id=request_id,
+        created_at=FishyAssessment.now_utc(),
+        mode=req.mode,
+        input_type=req.input_type,
+        verdict=ai_raw.risk_level,
+        confidence=ai_raw.confidence,
+        category=ai_raw.category,
+        romance_indicators=ai_raw.romance_indicators,
+        reasons=reasons,
+        recommended_next_step=ai_raw.recommended_next_step,
+        safety_notes=[],
+        share_controls=share_controls,
+    )
