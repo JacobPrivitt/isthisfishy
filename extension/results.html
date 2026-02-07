@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IsThisFishy Results</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body class="page">
+  <main class="wrap wide">
+    <header>
+      <h1>IsThisFishy</h1>
+      <p class="tagline">A calm second opinion before you reply.</p>
+    </header>
+
+    <section class="modes">
+      <button class="mode-btn active" data-mode="private" type="button">Private</button>
+      <button class="mode-btn" data-mode="shared" type="button">Shared</button>
+      <button class="mode-btn" data-mode="family" type="button">Family</button>
+    </section>
+
+    <label class="signed-in">
+      <input id="signedInToggle" type="checkbox">
+      <span>Signed in (dev)</span>
+    </label>
+
+    <label for="contentText">Message</label>
+    <textarea id="contentText" rows="10" placeholder="Paste message, email, or chat text..."></textarea>
+    <p class="trust-line">Nothing you paste is saved or shared unless you choose.</p>
+
+    <section class="actions">
+      <button id="checkBtn" class="primary" type="button">Check</button>
+      <button id="clearBtn" type="button">Clear</button>
+    </section>
+
+    <section id="errorCard" class="card error hidden"></section>
+
+    <section id="unlockCard" class="card hidden">
+      <p><strong>Family mode requires Family Protection.</strong></p>
+      <div class="inline">
+        <input id="licenseCodeInput" type="text" placeholder="FISHY-XXXX-XXXX" maxlength="64">
+        <button id="unlockBtn" type="button">Unlock</button>
+      </div>
+      <p id="unlockStatus" class="status-line"></p>
+    </section>
+
+    <section id="resultCard" class="card hidden">
+      <p id="verdictText" class="verdict"></p>
+      <p><strong>Confidence:</strong> <span id="confidenceText"></span></p>
+      <p><strong>Scam type:</strong> <span id="scamTypeText"></span></p>
+      <p><strong>Reasons:</strong></p>
+      <ul id="reasonsList"></ul>
+      <p><strong>Next action:</strong> <span id="nextActionText"></span></p>
+      <p class="request-id">
+        Request ID: <code id="requestIdText"></code>
+        <button id="copyRequestIdBtn" type="button">Copy</button>
+      </p>
+    </section>
+
+    <section id="sharedCard" class="card hidden">
+      <p><strong>Share this result</strong></p>
+      <button id="createShareBtn" type="button">Create Share Link</button>
+      <p id="shareStatus" class="status-line"></p>
+    </section>
+
+    <section id="familyCard" class="card hidden">
+      <p><strong>Family members</strong></p>
+      <div class="inline">
+        <input id="inviteEmailInput" type="email" placeholder="family@example.com">
+        <button id="inviteFamilyBtn" type="button">Invite</button>
+      </div>
+      <p id="familyStatus" class="status-line"></p>
+      <div class="family-grid">
+        <div>
+          <p class="mini-title">Members</p>
+          <ul id="familyMembersList"></ul>
+        </div>
+        <div>
+          <p class="mini-title">Recent events</p>
+          <ul id="familyEventsList"></ul>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>

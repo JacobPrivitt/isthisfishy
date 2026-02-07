@@ -2,6 +2,21 @@
 
 FastAPI + SQLite backend for scam-content analysis with a simple license-key paywall.
 
+## API versioning
+- Stable client-facing routes are under `/api/v1`.
+- Unversioned routes remain available for backward compatibility (planned deprecation later).
+- Core v1 endpoints:
+  - `POST /api/v1/analyze`
+  - `POST /api/v1/redeem`
+  - `POST /api/v1/share`
+  - `GET /api/v1/s/{token}`
+  - `POST /api/v1/family/create`
+  - `POST /api/v1/family/invite`
+  - `POST /api/v1/family/accept`
+  - `GET /api/v1/family/events`
+- v1 errors use one shape:
+  - `{"request_id":"...","error":{"code":"BAD_REQUEST|UNAUTHORIZED|PAYWALL|RATE_LIMIT|NOT_FOUND|INTERNAL","message":"..."}}`
+
 ## Placeholder auth (non-prod only)
 - `Authorization: Bearer dev` maps to `dev_user`.
 - Optional demo token from `.env`:

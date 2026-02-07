@@ -152,3 +152,129 @@ class FishyAssessment(BaseModel):
     @staticmethod
     def now_utc() -> datetime:
         return datetime.now(timezone.utc)
+
+
+class V1Verdict(str, Enum):
+    very_likely_scam = "very_likely_scam"
+    likely_scam = "likely_scam"
+    unclear = "unclear"
+    likely_safe = "likely_safe"
+
+
+class V1Confidence(str, Enum):
+    low = "low"
+    medium = "medium"
+    high = "high"
+
+
+class ErrorCode(str, Enum):
+    UNAUTHORIZED = "UNAUTHORIZED"
+    PAYWALL = "PAYWALL"
+    RATE_LIMIT = "RATE_LIMIT"
+    BAD_REQUEST = "BAD_REQUEST"
+    NOT_FOUND = "NOT_FOUND"
+    INTERNAL = "INTERNAL"
+
+
+class AnalyzeV1Request(BaseModel):
+    mode: Mode = Mode.private
+    input_type: Literal["text"] = "text"
+    content_text: str = Field(default="", max_length=8000)
+
+
+class AnalyzeV1Share(BaseModel):
+    available: bool
+    token: Optional[str] = None
+    url: Optional[str] = None
+
+
+class AnalyzeV1Family(BaseModel):
+    event_created: bool
+    group_id: Optional[str] = None
+
+
+class AnalyzeV1Response(BaseModel):
+    request_id: str
+    mode: Mode
+    verdict: V1Verdict
+    confidence: V1Confidence
+    scam_type: str
+    reasons: List[str]
+    next_action: str
+    summary: str
+    share: AnalyzeV1Share
+    family: AnalyzeV1Family
+
+
+class RedeemV1Response(BaseModel):
+    request_id: str
+    ok: bool
+    plan: str
+    expires_at: Optional[str] = None
+    status: Literal["active"]
+
+
+class ShareV1Request(BaseModel):
+    analysis_result: AnalyzeV1Response
+    share_ttl_hours: int = Field(default=72, ge=1, le=720)
+
+
+class ShareV1Response(BaseModel):
+    request_id: str
+    ok: bool
+    token: str
+    url: str
+    expires_at: str
+
+
+class FamilyCreateV1Response(BaseModel):
+    request_id: str
+    ok: bool
+    group_id: str
+
+
+class FamilyInviteV1Response(BaseModel):
+    request_id: str
+    ok: bool
+
+
+class FamilyAcceptV1Response(BaseModel):
+    request_id: str
+    ok: bool
+
+
+class FamilyMemberV1(BaseModel):
+    email: str
+    role: str
+    status: str
+
+
+class FamilyMembersV1Response(BaseModel):
+    request_id: str
+    ok: bool
+    members: List[FamilyMemberV1]
+
+
+class FamilyEventV1(BaseModel):
+    created_at: str
+    verdict: str
+    confidence: str
+    scam_type: str
+    reasons: List[str]
+    next_action: str
+
+
+class FamilyEventsV1Response(BaseModel):
+    request_id: str
+    ok: bool
+    events: List[FamilyEventV1]
+
+
+class ErrorPayload(BaseModel):
+    code: ErrorCode
+    message: str
+
+
+class ErrorResponse(BaseModel):
+    request_id: str
+    error: ErrorPayload

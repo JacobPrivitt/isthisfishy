@@ -68,7 +68,7 @@ def main() -> None:
 
     # Private mode: no share/family artifacts besides usage counters.
     private_res = client.post(
-        "/analyze",
+        "/api/v1/analyze",
         json={"mode": "private", "input_type": "text", "content_text": "hello"},
     )
     assert private_res.status_code in (200, 502)
@@ -78,22 +78,25 @@ def main() -> None:
 
     # Shared mode: create share link and ensure no content storage.
     shared_res = client.post(
-        "/analyze",
+        "/api/v1/analyze",
         headers={"Authorization": "Bearer dev"},
         json={"mode": "shared", "input_type": "text", "content_text": "do not store this text"},
     )
     assert shared_res.status_code in (200, 502)
     analysis_result = shared_res.json() if shared_res.status_code == 200 else {
         "mode": "shared",
-        "verdict": "suspicious",
-        "verdict_label": "Suspicious",
+        "request_id": "fallback",
+        "verdict": "likely_scam",
         "confidence": "medium",
         "scam_type": "unknown",
         "reasons": ["Looks unusual.", "Please verify with someone you trust."],
         "next_action": "Pause and verify details with a trusted source.",
+        "summary": "Looks suspicious. Pause and verify details with a trusted source.",
+        "share": {"available": True, "token": None, "url": None},
+        "family": {"event_created": False, "group_id": None},
     }
     share_res = client.post(
-        "/share",
+        "/api/v1/share",
         headers={"Authorization": "Bearer dev"},
         json={"analysis_result": analysis_result, "share_ttl_hours": 1},
     )
@@ -103,7 +106,7 @@ def main() -> None:
 
     # Family blocked when unpaid.
     unpaid_family_res = client.post(
-        "/analyze",
+        "/api/v1/analyze",
         headers={"Authorization": "Bearer dev"},
         json={"mode": "family", "input_type": "text", "content_text": "family check"},
     )
@@ -112,14 +115,14 @@ def main() -> None:
     # Redeem family and verify family event created without content_text.
     _seed_license("FISHY-ABCD-EFGH", "family")
     redeem_res = client.post(
-        "/redeem",
+        "/api/v1/redeem",
         headers={"Authorization": "Bearer dev"},
         json={"license_key": "FISHY-ABCD-EFGH"},
     )
     assert redeem_res.status_code == 200
 
     family_res = client.post(
-        "/analyze",
+        "/api/v1/analyze",
         headers={"Authorization": "Bearer dev"},
         json={"mode": "family", "input_type": "text", "content_text": "never store this"},
     )
@@ -137,7 +140,7 @@ def main() -> None:
     )
     conn.commit()
     conn.close()
-    expired_res = client.get(f"/s/{token}")
+    expired_res = client.get(f"/api/v1/s/{token}")
     assert expired_res.status_code == 404
 
     print("Verification passed.")

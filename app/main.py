@@ -1,22 +1,24 @@
 import json
 import html
+import hashlib
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Header, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import APIRouter, FastAPI, HTTPException, Header, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from redis import Redis
 from dotenv import load_dotenv
 load_dotenv()
 from rq import Queue
 
-from app.ai_provider import OpenAIProviderError, analyze_text
+from app.ai_provider import OpenAIProviderError, analyze, analyze_text
 from app.config import ADMIN_KEY, INVITE_REQUIRED, OPENAI_API_KEY, REDIS_URL
 from app.db import get_conn, init_db
-from app.models import AnalyzeRequest, CheckResult, FamilyInviteRequest, FishyAssessment, InputType, PrimaryAction, RedeemRequest, RedeemResponse, ShareRequest, SubmitRequest, SubmitResponse, Verdict
+from app.models import AnalyzeRequest, AnalyzeV1Family, AnalyzeV1Request, AnalyzeV1Response, AnalyzeV1Share, CheckResult, ErrorCode, ErrorResponse, FamilyAcceptV1Response, FamilyCreateV1Response, FamilyEventsV1Response, FamilyInviteRequest, FamilyInviteV1Response, FamilyMembersV1Response, FishyAssessment, InputType, PrimaryAction, RedeemRequest, RedeemResponse, RedeemV1Response, ShareRequest, ShareV1Request, ShareV1Response, SubmitRequest, SubmitResponse, V1Confidence, V1Verdict, Verdict
 from app.security import get_auth_user_from_header, require_auth_user, require_invite, utcnow_iso
 from app.tasks import process_check
 
@@ -25,6 +27,7 @@ app = FastAPI(title="IsThisFishy API", version="0.1.0")
 ANON_PRIVATE_DAILY_LIMIT = 5
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 INDEX_HTML = STATIC_DIR / "index.html"
+v1_router = APIRouter(prefix="/api/v1", tags=["v1"])
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
@@ -37,6 +40,82 @@ def startup():
     init_db()
     if not OPENAI_API_KEY:
         print("WARNING: OPENAI_API_KEY is not set. /analyze will use fallback local analysis.")
+
+
+@app.middleware("http")
+async def attach_request_id(request: Request, call_next):
+    request.state.request_id = str(uuid.uuid4())
+    return await call_next(request)
+
+
+def _request_id(request: Request | None) -> str:
+    if request is None:
+        return str(uuid.uuid4())
+    return getattr(request.state, "request_id", str(uuid.uuid4()))
+
+
+def _error_response(request_id: str, code: ErrorCode, message: str, status_code: int) -> JSONResponse:
+    payload = ErrorResponse(request_id=request_id, error={"code": code, "message": message})
+    return JSONResponse(status_code=status_code, content=payload.model_dump())
+
+
+def _raise_api_error(request: Request, status_code: int, code: ErrorCode, message: str) -> None:
+    raise HTTPException(
+        status_code=status_code,
+        detail={"request_id": _request_id(request), "code": code.value, "message": message},
+    )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    if request.url.path.startswith("/api/v1"):
+        detail = exc.detail if isinstance(exc.detail, dict) else {}
+        code_value = detail.get("code")
+        request_id = detail.get("request_id", _request_id(request))
+        message = detail.get("message")
+        if not message:
+            message = str(exc.detail) if isinstance(exc.detail, str) else "Request could not be completed."
+
+        code = ErrorCode.BAD_REQUEST
+        if code_value in ErrorCode.__members__:
+            code = ErrorCode[code_value]
+        elif exc.status_code == 401:
+            code = ErrorCode.UNAUTHORIZED
+        elif exc.status_code == 402:
+            code = ErrorCode.PAYWALL
+        elif exc.status_code == 429:
+            code = ErrorCode.RATE_LIMIT
+        elif exc.status_code == 404:
+            code = ErrorCode.NOT_FOUND
+        elif exc.status_code >= 500:
+            code = ErrorCode.INTERNAL
+
+        return _error_response(request_id=request_id, code=code, message=message, status_code=exc.status_code)
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    if request.url.path.startswith("/api/v1"):
+        return _error_response(
+            request_id=_request_id(request),
+            code=ErrorCode.INTERNAL,
+            message="Something went wrong. Please try again.",
+            status_code=500,
+        )
+    raise exc
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    if request.url.path.startswith("/api/v1"):
+        return _error_response(
+            request_id=_request_id(request),
+            code=ErrorCode.BAD_REQUEST,
+            message="The request format is invalid.",
+            status_code=400,
+        )
+    return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
 
 def _validate_invite(invite_code: str) -> None:
@@ -269,6 +348,100 @@ def _build_summary_text(analysis_result: dict) -> str:
     )
 
 
+def _single_sentence(text: str) -> str:
+    clean = _clamp(text, 180)
+    for sep in [".", "!", "?"]:
+        if sep in clean:
+            first = clean.split(sep, 1)[0].strip()
+            if first:
+                return first + "."
+    return clean.rstrip(".") + "."
+
+
+def normalize_model_output(ai_raw) -> dict:
+    verdict_map = {
+        "very_likely_scam": V1Verdict.very_likely_scam,
+        "suspicious": V1Verdict.likely_scam,
+        "probably_legit": V1Verdict.likely_safe,
+    }
+    confidence_map = {
+        "low": V1Confidence.low,
+        "medium": V1Confidence.medium,
+        "high": V1Confidence.high,
+    }
+
+    verdict = verdict_map.get(getattr(ai_raw.risk_level, "value", str(ai_raw.risk_level)), V1Verdict.unclear)
+    confidence = confidence_map.get(getattr(ai_raw.confidence, "value", str(ai_raw.confidence)), V1Confidence.medium)
+    scam_type = getattr(ai_raw.category, "value", "unknown") or "unknown"
+    reasons = _normalize_reasons(list(ai_raw.reasons or []))[:4]
+    next_action = _single_sentence(ai_raw.recommended_next_step.supporting_text or "Pause and verify with someone you trust.")
+    summary = (
+        f"Our review suggests {verdict.value.replace('_', ' ')}. "
+        f"The main concern appears to be {scam_type.replace('_', ' ')}. "
+        f"{next_action}"
+    )
+    return {
+        "verdict": verdict,
+        "confidence": confidence,
+        "scam_type": scam_type,
+        "reasons": reasons,
+        "next_action": next_action,
+        "summary": _clamp(summary, 240),
+    }
+
+
+def normalize_local_output(local_result) -> dict:
+    if local_result.risk_level == "high":
+        verdict = V1Verdict.very_likely_scam
+        confidence = V1Confidence.high
+    elif local_result.risk_level == "medium":
+        verdict = V1Verdict.likely_scam
+        confidence = V1Confidence.medium
+    else:
+        verdict = V1Verdict.likely_safe
+        confidence = V1Confidence.low
+
+    scam_type = "unknown" if local_result.category == "unknown" else "other"
+    reasons = _normalize_reasons(list(local_result.reasons or []))[:4]
+    next_action = _single_sentence(
+        (local_result.recommended_actions[0] if local_result.recommended_actions else "Pause and verify with someone you trust.")
+    )
+    summary = (
+        f"Our review suggests {verdict.value.replace('_', ' ')}. "
+        f"The main concern appears to be {scam_type.replace('_', ' ')}. "
+        f"{next_action}"
+    )
+    return {
+        "verdict": verdict,
+        "confidence": confidence,
+        "scam_type": scam_type,
+        "reasons": reasons,
+        "next_action": next_action,
+        "summary": _clamp(summary, 240),
+    }
+
+
+def _masked_ip(request: Request) -> str:
+    ip = request.client.host if request.client else "unknown"
+    return hashlib.sha256(ip.encode("utf-8")).hexdigest()[:12]
+
+
+def _log_v1_analyze(request: Request, mode: str, verdict: str, confidence: str, auth_state: str) -> None:
+    print(
+        json.dumps(
+            {
+                "request_id": _request_id(request),
+                "timestamp": utcnow_iso(),
+                "mode": mode,
+                "verdict": verdict,
+                "confidence": confidence,
+                "auth_state": auth_state,
+                "ip_hash": _masked_ip(request),
+            }
+        )
+    )
+
+
 def _has_active_family_entitlement(clerk_user_id: str) -> bool:
     with get_conn() as conn:
         row = conn.execute(
@@ -308,6 +481,184 @@ def _enforce_anonymous_private_limit(request: Request) -> None:
             raise HTTPException(status_code=429, detail="You have reached today's free limit. Please try again tomorrow.")
 
 
+def _record_family_event(auth_user, verdict: str, confidence: str, scam_type: str, reasons: list[str], next_action: str):
+    with get_conn() as conn:
+        user = _get_or_create_user(conn, auth_user.clerk_user_id, auth_user.email)
+        group_id = _resolve_family_group_for_user(conn, int(user["id"]))
+        if group_id is None:
+            group_id = _get_or_create_owner_family_group(conn, int(user["id"]))
+            conn.execute(
+                """
+                INSERT INTO family_members (group_id, member_email, member_user_id, role, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(group_id, member_email) DO NOTHING
+                """,
+                (group_id, user["email"], user["id"], "owner", "active", utcnow_iso()),
+            )
+
+        conn.execute(
+            """
+            INSERT INTO family_events (
+                group_id, created_by_user_id, verdict, confidence, scam_type, reasons_json, next_action, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                group_id,
+                user["id"],
+                verdict,
+                confidence,
+                scam_type,
+                json.dumps(reasons),
+                next_action,
+                utcnow_iso(),
+            ),
+        )
+    return str(group_id)
+
+
+@v1_router.post(
+    "/analyze",
+    response_model=AnalyzeV1Response,
+    description="Analyze text without storing pasted content. Private mode never creates share or family artifacts.",
+)
+def analyze_v1(
+    req: AnalyzeV1Request,
+    request: Request,
+    authorization: str | None = Header(default=None),
+):
+    request_id = _request_id(request)
+    if req.input_type != "text":
+        _raise_api_error(request, 400, ErrorCode.BAD_REQUEST, "Only text input is supported.")
+    if not req.content_text.strip():
+        _raise_api_error(request, 400, ErrorCode.BAD_REQUEST, "Please paste a message first.")
+
+    auth_user = get_auth_user_from_header(authorization)
+    auth_state = "authenticated" if auth_user is not None else "anonymous"
+    if auth_user is None:
+        if req.mode.value != "private":
+            _raise_api_error(request, 401, ErrorCode.UNAUTHORIZED, "Please sign in to use this mode.")
+        _enforce_anonymous_private_limit(request)
+    else:
+        if req.mode.value == "family" and not _has_active_family_entitlement(auth_user.clerk_user_id):
+            _raise_api_error(request, 402, ErrorCode.PAYWALL, "Family mode is part of the family plan.")
+
+    try:
+        ai_raw = analyze_text(req.content_text)
+        normalized = normalize_model_output(ai_raw)
+    except OpenAIProviderError:
+        local = analyze("text", req.content_text)
+        normalized = normalize_local_output(local)
+    share_info = AnalyzeV1Share(available=req.mode.value == "shared", token=None, url=None)
+    family_info = AnalyzeV1Family(event_created=False, group_id=None)
+
+    if req.mode.value == "family" and auth_user is not None:
+        group_id = _record_family_event(
+            auth_user=auth_user,
+            verdict=normalized["verdict"].value,
+            confidence=normalized["confidence"].value,
+            scam_type=normalized["scam_type"],
+            reasons=normalized["reasons"],
+            next_action=normalized["next_action"],
+        )
+        family_info = AnalyzeV1Family(event_created=True, group_id=group_id)
+
+    _log_v1_analyze(
+        request=request,
+        mode=req.mode.value,
+        verdict=normalized["verdict"].value,
+        confidence=normalized["confidence"].value,
+        auth_state=auth_state,
+    )
+
+    return AnalyzeV1Response(
+        request_id=request_id,
+        mode=req.mode,
+        verdict=normalized["verdict"],
+        confidence=normalized["confidence"],
+        scam_type=normalized["scam_type"],
+        reasons=normalized["reasons"],
+        next_action=normalized["next_action"],
+        summary=normalized["summary"],
+        share=share_info,
+        family=family_info,
+    )
+
+
+@v1_router.post("/redeem", response_model=RedeemV1Response, description="Redeem a license key for an authenticated user.")
+def redeem_v1(
+    req: RedeemRequest,
+    request: Request,
+    authorization: str | None = Header(default=None),
+):
+    redeemed = redeem_license(req=req, authorization=authorization)
+    return RedeemV1Response(
+        request_id=_request_id(request),
+        ok=redeemed.ok,
+        plan=redeemed.plan,
+        expires_at=redeemed.expires_at,
+        status=redeemed.status,
+    )
+
+
+@v1_router.post("/share", response_model=ShareV1Response, description="Create a share summary link without storing original pasted text.")
+def share_v1(
+    req: ShareV1Request,
+    request: Request,
+    authorization: str | None = Header(default=None),
+):
+    created = create_share_link(
+        req=ShareRequest(analysis_result=req.analysis_result.model_dump(mode="json"), share_ttl_hours=req.share_ttl_hours),
+        authorization=authorization,
+    )
+    return ShareV1Response(
+        request_id=_request_id(request),
+        ok=True,
+        token=created["token"],
+        url=created["share_url"],
+        expires_at=created["expires_at"],
+    )
+
+
+@v1_router.get("/s/{token}", description="Public read-only view of a previously created shared summary.")
+def shared_view_v1(token: str):
+    return view_share_link(token)
+
+
+@v1_router.post("/family/create", response_model=FamilyCreateV1Response, description="Create a family group for the signed-in user.")
+def family_create_v1(request: Request, authorization: str | None = Header(default=None)):
+    data = create_family_group(authorization=authorization)
+    return FamilyCreateV1Response(request_id=_request_id(request), ok=True, group_id=str(data["group_id"]))
+
+
+@v1_router.post("/family/invite", response_model=FamilyInviteV1Response, description="Invite a family member by email. No message content is stored.")
+def family_invite_v1(
+    req: FamilyInviteRequest,
+    request: Request,
+    authorization: str | None = Header(default=None),
+):
+    data = invite_family_member(req=req, authorization=authorization)
+    return FamilyInviteV1Response(request_id=_request_id(request), ok=data["ok"])
+
+
+@v1_router.post("/family/accept", response_model=FamilyAcceptV1Response, description="Accept a pending family invite for the signed-in email.")
+def family_accept_v1(request: Request, authorization: str | None = Header(default=None)):
+    data = accept_family_invite(authorization=authorization)
+    return FamilyAcceptV1Response(request_id=_request_id(request), ok=data["ok"])
+
+
+@v1_router.get("/family/events", response_model=FamilyEventsV1Response, description="List recent family event metadata only.")
+def family_events_v1(request: Request, authorization: str | None = Header(default=None)):
+    data = list_family_events(authorization=authorization)
+    return FamilyEventsV1Response(request_id=_request_id(request), ok=data["ok"], events=data["events"])
+
+
+@v1_router.get("/family/members", response_model=FamilyMembersV1Response, description="List family group members and invite status.")
+def family_members_v1(request: Request, authorization: str | None = Header(default=None)):
+    data = list_family_members(authorization=authorization)
+    return FamilyMembersV1Response(request_id=_request_id(request), ok=data["ok"], members=data["members"])
+
+
+# TODO: Deprecate unversioned endpoints after clients migrate to /api/v1.
 @app.post("/redeem", response_model=RedeemResponse)
 def redeem_license(
     req: RedeemRequest,
@@ -698,3 +1049,6 @@ def analyze_endpoint(
         next_action=next_action,
         scam_type=scam_type,
     )
+
+
+app.include_router(v1_router)

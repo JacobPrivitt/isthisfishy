@@ -1,4 +1,5 @@
 const DEV_AUTH = "Bearer dev";
+const API_BASE = "/api/v1";
 
 const MODE_REMINDERS = {
   private: "Private mode: Just for you. Not saved or shared.",
@@ -153,7 +154,7 @@ async function onCheckMessage() {
 
   setLoading(true);
   try {
-    const res = await postJson("/analyze", payload, shouldUseAuthForAnalyze());
+    const res = await postJson(`${API_BASE}/analyze`, payload, shouldUseAuthForAnalyze());
     if (res.ok) {
       const data = await res.json();
       state.lastAnalysis = data;
@@ -164,22 +165,25 @@ async function onCheckMessage() {
       return;
     }
 
-    if (res.status === 402) {
+    let err = {};
+    try { err = await res.json(); } catch (_) { err = {}; }
+    const code = err?.error?.code;
+    if (res.status === 402 || code === "PAYWALL") {
       unlockPanel.classList.remove("hidden");
       showError("Family mode needs an unlock code. Enter your code below.");
       return;
     }
-    if (res.status === 429) {
+    if (res.status === 429 || code === "RATE_LIMIT") {
       showError("You've hit today's free limit. Try again tomorrow or unlock Family Protection.");
       return;
     }
-    if (res.status === 401) {
+    if (res.status === 401 || code === "UNAUTHORIZED") {
       showError("Please sign in to use this feature. For now, turn on Signed in (dev).");
       return;
     }
 
     showError("Something went wrong. Please try again.");
-    console.error("Analyze failed", res.status, await res.text());
+    console.error("Analyze failed", res.status, err);
   } catch (err) {
     showError("Something went wrong. Please try again.");
     console.error("Analyze request error", err);
@@ -199,7 +203,7 @@ async function onUnlock() {
   unlockStatus.textContent = "";
   setLoading(true);
   try {
-    const res = await postJson("/redeem", { license_key: code }, true);
+    const res = await postJson(`${API_BASE}/redeem`, { license_key: code }, true);
     if (!res.ok) {
       unlockStatus.textContent = "That code could not be redeemed.";
       console.error("Redeem failed", res.status, await res.text());
@@ -208,7 +212,7 @@ async function onUnlock() {
 
     unlockStatus.textContent = "Unlocked. Retrying your check...";
     if (state.lastRequestBody) {
-      const retry = await postJson("/analyze", state.lastRequestBody, shouldUseAuthForAnalyze());
+      const retry = await postJson(`${API_BASE}/analyze`, state.lastRequestBody, shouldUseAuthForAnalyze());
       if (retry.ok) {
         const data = await retry.json();
         state.lastAnalysis = data;
@@ -242,7 +246,7 @@ async function onCreateShareLink() {
   clearError();
   shareStatus.textContent = "";
   try {
-    const res = await postJson("/share", { analysis_result: state.lastAnalysis, share_ttl_hours: 72 }, true);
+    const res = await postJson(`${API_BASE}/share`, { analysis_result: state.lastAnalysis, share_ttl_hours: 72 }, true);
     if (!res.ok) {
       if (res.status === 401) {
         shareStatus.textContent = "Please sign in to create a share link.";
@@ -254,7 +258,7 @@ async function onCreateShareLink() {
     }
 
     const data = await res.json();
-    const fullUrl = `${window.location.origin}${data.share_url}`;
+    const fullUrl = `${window.location.origin}${data.url}`;
     shareStatus.innerHTML = `Share link created: <a href="${fullUrl}" target="_blank" rel="noopener">${fullUrl}</a>`;
   } catch (err) {
     shareStatus.textContent = "Could not create share link.";
@@ -275,10 +279,10 @@ async function loadFamilyPanel() {
 
   familyStatus.textContent = "";
   try {
-    await postJson("/family/create", {}, true);
-    await postJson("/family/accept", {}, true);
+    await postJson(`${API_BASE}/family/create`, {}, true);
+    await postJson(`${API_BASE}/family/accept`, {}, true);
 
-    const membersRes = await getJson("/family/members", true);
+    const membersRes = await getJson(`${API_BASE}/family/members`, true);
     if (membersRes.ok) {
       const data = await membersRes.json();
       const members = data.members || [];
@@ -295,7 +299,7 @@ async function loadFamilyPanel() {
       }
     }
 
-    const eventsRes = await getJson("/family/events", true);
+    const eventsRes = await getJson(`${API_BASE}/family/events`, true);
     if (eventsRes.ok) {
       const data = await eventsRes.json();
       const events = data.events || [];
@@ -333,8 +337,8 @@ async function onInviteFamilyMember() {
   familyStatus.textContent = "";
   clearError();
   try {
-    await postJson("/family/create", {}, true);
-    const res = await postJson("/family/invite", { email }, true);
+    await postJson(`${API_BASE}/family/create`, {}, true);
+    const res = await postJson(`${API_BASE}/family/invite`, { email }, true);
     if (!res.ok) {
       familyStatus.textContent = "Could not send invite.";
       console.error("Family invite failed", res.status, await res.text());
