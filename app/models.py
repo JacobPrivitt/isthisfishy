@@ -98,6 +98,17 @@ class AnalyzeRequest(BaseModel):
     content_text: str = Field(default="", max_length=8000)
 
 
+class RedeemRequest(BaseModel):
+    license_key: str = Field(min_length=1, max_length=64)
+
+
+class RedeemResponse(BaseModel):
+    ok: bool
+    plan: str
+    expires_at: Optional[str] = None
+    status: Literal["active"]
+
+
 class AiRawResult(BaseModel):
     risk_level: Verdict
     confidence: Confidence

@@ -1,7 +1,8 @@
 import json
 import uuid
+from datetime import datetime, timezone
 
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Request
 from redis import Redis
 from dotenv import load_dotenv
 load_dotenv()
@@ -10,12 +11,13 @@ from rq import Queue
 from app.ai_provider import OpenAIProviderError, analyze_text
 from app.config import ADMIN_KEY, INVITE_REQUIRED, OPENAI_API_KEY, REDIS_URL
 from app.db import get_conn, init_db
-from app.models import AnalyzeRequest, CheckResult, FishyAssessment, InputType, PrimaryAction, SubmitRequest, SubmitResponse, Verdict
-from app.security import require_invite, utcnow_iso
+from app.models import AnalyzeRequest, CheckResult, FishyAssessment, InputType, PrimaryAction, RedeemRequest, RedeemResponse, SubmitRequest, SubmitResponse, Verdict
+from app.security import get_auth_user_from_header, require_auth_user, require_invite, utcnow_iso
 from app.tasks import process_check
 
 
 app = FastAPI(title="IsThisFishy API", version="0.1.0")
+ANON_PRIVATE_DAILY_LIMIT = 5
 
 redis_conn = Redis.from_url(REDIS_URL)
 queue = Queue("default", connection=redis_conn)
@@ -131,12 +133,169 @@ def _enforce_action_alignment(verdict: Verdict) -> PrimaryAction:
     return PrimaryAction.pause_and_verify
 
 
+def _parse_iso_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    normalized = value.replace("Z", "+00:00")
+    dt = datetime.fromisoformat(normalized)
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _is_expired(value: str | None) -> bool:
+    expires_at = _parse_iso_datetime(value)
+    if expires_at is None:
+        return False
+    return expires_at <= datetime.now(timezone.utc)
+
+
+def _get_or_create_user(conn, clerk_user_id: str, email: str):
+    row = conn.execute(
+        "SELECT id, clerk_user_id, email FROM users WHERE clerk_user_id=?",
+        (clerk_user_id,),
+    ).fetchone()
+    if row:
+        return row
+
+    conn.execute(
+        "INSERT INTO users (clerk_user_id, email, created_at) VALUES (?, ?, ?)",
+        (clerk_user_id, email, utcnow_iso()),
+    )
+    return conn.execute(
+        "SELECT id, clerk_user_id, email FROM users WHERE clerk_user_id=?",
+        (clerk_user_id,),
+    ).fetchone()
+
+
+def _has_active_family_entitlement(clerk_user_id: str) -> bool:
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT e.plan, e.status, e.expires_at
+            FROM entitlements e
+            JOIN users u ON u.id = e.user_id
+            WHERE u.clerk_user_id = ?
+            """,
+            (clerk_user_id,),
+        ).fetchone()
+    if row is None:
+        return False
+    if row["status"] != "active":
+        return False
+    if row["plan"] != "family":
+        return False
+    return not _is_expired(row["expires_at"])
+
+
+def _enforce_anonymous_private_limit(request: Request) -> None:
+    ip_address = request.client.host if request.client else "unknown"
+    day = datetime.now(timezone.utc).date().isoformat()
+
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, count FROM usage_counters WHERE ip_address=? AND day=?",
+            (ip_address, day),
+        ).fetchone()
+
+        if row is None:
+            conn.execute(
+                "INSERT INTO usage_counters (ip_address, day, count, created_at) VALUES (?, ?, ?, ?)",
+                (ip_address, day, 1, utcnow_iso()),
+            )
+            return
+
+        if int(row["count"]) >= ANON_PRIVATE_DAILY_LIMIT:
+            raise HTTPException(status_code=429, detail="Daily limit reached for anonymous private mode")
+
+        conn.execute(
+            "UPDATE usage_counters SET count=? WHERE id=?",
+            (int(row["count"]) + 1, row["id"]),
+        )
+
+
+@app.post("/redeem", response_model=RedeemResponse)
+def redeem_license(
+    req: RedeemRequest,
+    authorization: str | None = Header(default=None),
+):
+    auth_user = require_auth_user(authorization)
+    license_key = req.license_key.strip().upper()
+    now_iso = utcnow_iso()
+
+    with get_conn() as conn:
+        user = _get_or_create_user(conn, auth_user.clerk_user_id, auth_user.email)
+        license_row = conn.execute(
+            "SELECT * FROM license_keys WHERE key=?",
+            (license_key,),
+        ).fetchone()
+
+        if license_row is None:
+            raise HTTPException(status_code=400, detail="Invalid license key")
+        if license_row["status"] != "unused":
+            raise HTTPException(status_code=400, detail="License key already used")
+        if _is_expired(license_row["expires_at"]):
+            raise HTTPException(status_code=400, detail="License key expired")
+
+        conn.execute(
+            """
+            UPDATE license_keys
+            SET status=?, redeemed_by_user_id=?, redeemed_at=?
+            WHERE id=?
+            """,
+            ("redeemed", user["id"], now_iso, license_row["id"]),
+        )
+
+        entitlement_row = conn.execute(
+            "SELECT id FROM entitlements WHERE user_id=?",
+            (user["id"],),
+        ).fetchone()
+
+        if entitlement_row is None:
+            conn.execute(
+                """
+                INSERT INTO entitlements (user_id, plan, status, expires_at, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (user["id"], license_row["plan"], "active", license_row["expires_at"], now_iso),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE entitlements
+                SET plan=?, status=?, expires_at=?
+                WHERE user_id=?
+                """,
+                (license_row["plan"], "active", license_row["expires_at"], user["id"]),
+            )
+
+    return RedeemResponse(
+        ok=True,
+        plan=license_row["plan"],
+        expires_at=license_row["expires_at"],
+        status="active",
+    )
+
+
 @app.post("/analyze", response_model=FishyAssessment)
-def analyze_endpoint(req: AnalyzeRequest):
+def analyze_endpoint(
+    req: AnalyzeRequest,
+    request: Request,
+    authorization: str | None = Header(default=None),
+):
     if req.input_type != InputType.text:
         raise HTTPException(status_code=400, detail="MVP supports text only for now.")
     if not req.content_text.strip():
         raise HTTPException(status_code=400, detail="content_text is required.")
+
+    auth_user = get_auth_user_from_header(authorization)
+    if auth_user is None:
+        if req.mode.value != "private":
+            raise HTTPException(status_code=401, detail="Authentication required for shared/family mode")
+        _enforce_anonymous_private_limit(request)
+    else:
+        if req.mode.value == "family" and not _has_active_family_entitlement(auth_user.clerk_user_id):
+            raise HTTPException(status_code=402, detail="Family mode requires active family plan")
 
     request_id = str(uuid.uuid4())
 

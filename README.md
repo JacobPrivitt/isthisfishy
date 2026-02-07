@@ -1,21 +1,38 @@
-# IsThisFishy (beta ground break)
+# IsThisFishy Backend
 
-FastAPI + RQ + SQLite starter for invite-only scam checks.
+FastAPI + SQLite backend for scam-content analysis with a simple license-key paywall.
 
-## Prereqs
-- Python 3.11+
-- Redis running locally
-
-## Setup
+## Run locally
 ```bash
 python -m venv .venv
-# Windows:
+# Windows
 .venv\Scripts\activate
-# macOS/Linux:
+# macOS/Linux
 # source .venv/bin/activate
 
-pip install -r requirements.txt
+pip install -r reqs.txt
+python scripts/init_db.py
+uvicorn app.main:app --reload
+```
 
-copy .env.example .env  # Windows
-# cp .env.example .env  # macOS/Linux
-    
+## Generate license keys
+```bash
+python scripts/generate_license_keys.py --count 10 --plan family --days 30
+```
+
+## Redeem a key (dev auth)
+```bash
+curl -X POST "http://127.0.0.1:8000/redeem" ^
+  -H "Authorization: Bearer dev" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"license_key\":\"FISHY-ABCD-EFGH\"}"
+```
+
+## Modes and paywall rules
+- `private` is always available.
+- Anonymous users can only use `private`.
+- Anonymous `private` has a per-IP daily limit (default `5`).
+- Authenticated users without paid entitlement can use `private` and `shared`.
+- `family` mode requires an active `family` entitlement.
+- Redeeming a valid, unexpired license key activates entitlement on the authenticated user.
+- Expired or already redeemed keys are rejected.

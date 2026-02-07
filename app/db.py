@@ -21,6 +21,7 @@ def get_conn():
 
 def init_db() -> None:
     with get_conn() as conn:
+        conn.execute("PRAGMA foreign_keys = ON")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS invites (
@@ -46,6 +47,56 @@ def init_db() -> None:
                 explanation TEXT,
                 error TEXT,
                 invite_code TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                clerk_user_id TEXT UNIQUE,
+                email TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS entitlements (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL UNIQUE,
+                plan TEXT NOT NULL,
+                status TEXT NOT NULL,
+                expires_at TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS license_keys (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key TEXT NOT NULL UNIQUE,
+                plan TEXT NOT NULL,
+                status TEXT NOT NULL,
+                expires_at TEXT,
+                redeemed_by_user_id INTEGER,
+                redeemed_at TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (redeemed_by_user_id) REFERENCES users(id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS usage_counters (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ip_address TEXT NOT NULL,
+                day TEXT NOT NULL,
+                count INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                UNIQUE(ip_address, day)
             )
             """
         )

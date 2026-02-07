@@ -1,5 +1,10 @@
 import os
+import sys
+from pathlib import Path
+
 import requests
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 ADMIN_KEY = os.getenv("ADMIN_KEY", "change-me")
 
