@@ -23,6 +23,11 @@ python scripts/init_db.py
 uvicorn app.main:app --reload
 ```
 
+Open `http://127.0.0.1:8000/` to use the web UI.
+- Paste text and click **Check Message**.
+- Use **Signed in (dev)** to simulate authenticated requests.
+- If Family mode is locked, redeem a code in the **Unlock Family Protection** panel.
+
 ## Generate license keys
 ```bash
 python scripts/generate_license_keys.py --count 10 --plan family --days 30

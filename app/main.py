@@ -1,8 +1,11 @@
 import json
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Header, Request
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from redis import Redis
 from dotenv import load_dotenv
 load_dotenv()
@@ -18,6 +21,10 @@ from app.tasks import process_check
 
 app = FastAPI(title="IsThisFishy API", version="0.1.0")
 ANON_PRIVATE_DAILY_LIMIT = 5
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+INDEX_HTML = STATIC_DIR / "index.html"
+
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 redis_conn = Redis.from_url(REDIS_URL)
 queue = Queue("default", connection=redis_conn)
@@ -50,6 +57,16 @@ def _mark_invite_used(invite_code: str) -> None:
 @app.get("/health")
 def health():
     return {"ok": True}
+
+
+@app.get("/")
+def ui_index():
+    return FileResponse(str(INDEX_HTML))
+
+
+@app.get("/app")
+def ui_app():
+    return FileResponse(str(INDEX_HTML))
 
 
 @app.post("/submit", response_model=SubmitResponse)

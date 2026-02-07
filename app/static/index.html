@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IsThisFishy</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="page">
+    <section class="card">
+      <header class="header">
+        <h1>IsThisFishy</h1>
+        <p>A calm second opinion before you reply.</p>
+      </header>
+
+      <section class="auth-row">
+        <label class="toggle">
+          <input id="signedInToggle" type="checkbox">
+          <span>Signed in (dev)</span>
+        </label>
+      </section>
+
+      <section class="mode-section">
+        <p class="label">Mode</p>
+        <div class="mode-buttons" role="tablist" aria-label="Select mode">
+          <button class="mode-btn active" data-mode="private" type="button">Private</button>
+          <button class="mode-btn" data-mode="shared" type="button">Shared</button>
+          <button class="mode-btn" data-mode="family" type="button">Family</button>
+        </div>
+      </section>
+
+      <section>
+        <label class="label" for="contentText">Message</label>
+        <textarea
+          id="contentText"
+          rows="8"
+          placeholder="Paste the message here (text, email, or chat)…"
+        ></textarea>
+        <p id="privacyLine" class="privacy-line">Private mode: not saved, not shared.</p>
+      </section>
+
+      <section class="actions">
+        <button id="checkBtn" class="primary-btn" type="button">Check Message</button>
+      </section>
+
+      <section id="errorPanel" class="panel error hidden" aria-live="polite"></section>
+
+      <section id="unlockPanel" class="panel unlock hidden">
+        <h2>Unlock Family Protection</h2>
+        <p>Enter your code to unlock Family mode.</p>
+        <div class="unlock-controls">
+          <input id="licenseKeyInput" type="text" placeholder="FISHY-XXXX-XXXX" maxlength="64">
+          <button id="unlockBtn" class="secondary-btn" type="button">Unlock</button>
+        </div>
+        <p id="unlockStatus" class="unlock-status"></p>
+      </section>
+
+      <section id="resultPanel" class="panel result hidden" aria-live="polite">
+        <p id="verdictLabel" class="verdict"></p>
+        <p><strong>Confidence:</strong> <span id="confidenceText"></span></p>
+        <p><strong>Scam type:</strong> <span id="categoryText"></span></p>
+        <div>
+          <p><strong>Why this may be risky:</strong></p>
+          <ul id="reasonsList"></ul>
+        </div>
+        <p><strong>Next step:</strong> <span id="nextStepText"></span></p>
+      </section>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
