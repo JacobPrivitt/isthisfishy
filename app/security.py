@@ -3,7 +3,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 
-from app.config import DEMO_AUTH_EMAIL, DEMO_AUTH_TOKEN, DEMO_AUTH_USER_ID, INVITE_REQUIRED, IS_PROD
+from app.config import ALLOW_PLACEHOLDER_AUTH, DEMO_AUTH_EMAIL, DEMO_AUTH_TOKEN, DEMO_AUTH_USER_ID, INVITE_REQUIRED
 
 
 DEV_AUTH_HEADER = "Bearer dev"
@@ -27,8 +27,8 @@ def require_invite(invite_code: str | None) -> None:
 
 
 def get_auth_user_from_header(authorization: Optional[str]) -> Optional[AuthUser]:
-    if IS_PROD:
-        # Placeholder tokens are disabled in production.
+    if not ALLOW_PLACEHOLDER_AUTH:
+        # Placeholder tokens are only allowed in dev.
         return None
 
     if authorization == DEV_AUTH_HEADER:
@@ -43,5 +43,5 @@ def get_auth_user_from_header(authorization: Optional[str]) -> Optional[AuthUser
 def require_auth_user(authorization: Optional[str]) -> AuthUser:
     user = get_auth_user_from_header(authorization)
     if user is None:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+        raise HTTPException(status_code=401, detail="Please sign in to continue.")
     return user

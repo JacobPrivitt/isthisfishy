@@ -7,8 +7,8 @@ from dotenv import load_dotenv
 ENV_PATH = Path(__file__).resolve().parents[1] / '.env'
 load_dotenv(ENV_PATH)
 
-ENV = os.getenv('ENV', 'dev')
-IS_PROD = ENV.lower() == 'prod'
+ENV = os.getenv('ENV', 'prod')
+ALLOW_PLACEHOLDER_AUTH = ENV.lower() == 'dev'
 DATABASE_PATH = os.getenv('DATABASE_PATH', './data/isthisfishy.db')
 REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
 ADMIN_KEY = os.getenv('ADMIN_KEY', 'change-me')

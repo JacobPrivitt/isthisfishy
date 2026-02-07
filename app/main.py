@@ -58,8 +58,8 @@ def submit(req: SubmitRequest):
         require_invite(req.invite_code)
         if INVITE_REQUIRED:
             _validate_invite(req.invite_code or "")
-    except ValueError as e:
-        raise HTTPException(status_code=401, detail=str(e))
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Please use a valid invite code.")
 
     check_id = str(uuid.uuid4())
     created_at = utcnow_iso()
@@ -194,24 +194,17 @@ def _enforce_anonymous_private_limit(request: Request) -> None:
 
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT id, count FROM usage_counters WHERE ip_address=? AND day=?",
-            (ip_address, day),
+            """
+            INSERT INTO usage_counters (ip_address, day, count, created_at)
+            VALUES (?, ?, 1, ?)
+            ON CONFLICT(ip_address, day) DO UPDATE SET count = usage_counters.count + 1
+            RETURNING count
+            """,
+            (ip_address, day, utcnow_iso()),
         ).fetchone()
 
-        if row is None:
-            conn.execute(
-                "INSERT INTO usage_counters (ip_address, day, count, created_at) VALUES (?, ?, ?, ?)",
-                (ip_address, day, 1, utcnow_iso()),
-            )
-            return
-
-        if int(row["count"]) >= ANON_PRIVATE_DAILY_LIMIT:
-            raise HTTPException(status_code=429, detail="Daily limit reached for anonymous private mode")
-
-        conn.execute(
-            "UPDATE usage_counters SET count=? WHERE id=?",
-            (int(row["count"]) + 1, row["id"]),
-        )
+        if int(row["count"]) > ANON_PRIVATE_DAILY_LIMIT:
+            raise HTTPException(status_code=429, detail="You have reached today's free limit. Please try again tomorrow.")
 
 
 @app.post("/redeem", response_model=RedeemResponse)
@@ -220,10 +213,11 @@ def redeem_license(
     authorization: str | None = Header(default=None),
 ):
     auth_user = require_auth_user(authorization)
-    license_key = req.license_key.strip().upper()
+    license_key = "".join(req.license_key.split()).upper()
     now_iso = utcnow_iso()
 
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         user = _get_or_create_user(conn, auth_user.clerk_user_id, auth_user.email)
         license_row = conn.execute(
             "SELECT * FROM license_keys WHERE key=?",
@@ -237,17 +231,8 @@ def redeem_license(
         if _is_expired(license_row["expires_at"]):
             raise HTTPException(status_code=400, detail="License key expired")
 
-        conn.execute(
-            """
-            UPDATE license_keys
-            SET status=?, redeemed_by_user_id=?, redeemed_at=?
-            WHERE id=?
-            """,
-            ("redeemed", user["id"], now_iso, license_row["id"]),
-        )
-
         entitlement_row = conn.execute(
-            "SELECT id FROM entitlements WHERE user_id=?",
+            "SELECT id, plan, status, expires_at FROM entitlements WHERE user_id=?",
             (user["id"],),
         ).fetchone()
 
@@ -260,14 +245,35 @@ def redeem_license(
                 (user["id"], license_row["plan"], "active", license_row["expires_at"], now_iso),
             )
         else:
+            existing_is_active = entitlement_row["status"] == "active" and not _is_expired(entitlement_row["expires_at"])
+            if existing_is_active and entitlement_row["plan"] != license_row["plan"]:
+                raise HTTPException(status_code=400, detail="You already have an active plan.")
+
+            existing_exp = _parse_iso_datetime(entitlement_row["expires_at"])
+            new_exp = _parse_iso_datetime(license_row["expires_at"])
+            merged_exp = entitlement_row["expires_at"]
+            if existing_exp is None:
+                merged_exp = entitlement_row["expires_at"]
+            elif new_exp is None or new_exp > existing_exp:
+                merged_exp = license_row["expires_at"]
+
             conn.execute(
                 """
                 UPDATE entitlements
                 SET plan=?, status=?, expires_at=?
                 WHERE user_id=?
                 """,
-                (license_row["plan"], "active", license_row["expires_at"], user["id"]),
+                (license_row["plan"], "active", merged_exp, user["id"]),
             )
+
+        conn.execute(
+            """
+            UPDATE license_keys
+            SET status=?, redeemed_by_user_id=?, redeemed_at=?
+            WHERE id=?
+            """,
+            ("redeemed", user["id"], now_iso, license_row["id"]),
+        )
 
     return RedeemResponse(
         ok=True,
@@ -291,11 +297,11 @@ def analyze_endpoint(
     auth_user = get_auth_user_from_header(authorization)
     if auth_user is None:
         if req.mode.value != "private":
-            raise HTTPException(status_code=401, detail="Authentication required for shared/family mode")
+            raise HTTPException(status_code=401, detail="Please sign in to use this mode.")
         _enforce_anonymous_private_limit(request)
     else:
         if req.mode.value == "family" and not _has_active_family_entitlement(auth_user.clerk_user_id):
-            raise HTTPException(status_code=402, detail="Family mode requires active family plan")
+            raise HTTPException(status_code=402, detail="Family mode is part of the family plan.")
 
     request_id = str(uuid.uuid4())
 
