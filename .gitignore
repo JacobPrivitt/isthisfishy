@@ -1,3 +1,4 @@
+# Backend (Python/FastAPI)
 .env
 __pycache__/
 *.pyc
@@ -5,3 +6,17 @@ data/
 .venv/
 venv/
 .DS_Store
+
+# Frontend (Next.js)
+.next
+out
+dist
+node_modules
+.env.local
+.env.*.local
+*.swp
+*.swo
+*~
+.vercel
+.env*.local
+node_modules
