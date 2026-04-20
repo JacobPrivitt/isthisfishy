@@ -307,3 +307,7 @@ See `extension/README.md` for setup instructions.
 3. Test locally
 4. Push branch and create PR
 5. Merge to `main` after review
+
+---
+
+*Last updated: April 19, 2026*
