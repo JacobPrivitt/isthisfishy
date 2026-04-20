@@ -310,4 +310,4 @@ See `extension/README.md` for setup instructions.
 
 ---
 
-*Last updated: April 19, 2026*
+*Last updated: April 19, 2026 - Git config updated*
