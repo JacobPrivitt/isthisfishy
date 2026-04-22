@@ -2,7 +2,7 @@
 
 AI-powered scam detection with FastAPI backend, Next.js frontend, Chrome extension, and Stripe billing.
 
-## 🏗️ Architecture
+## Architecture
 
 - **Backend**: FastAPI + SQLite with SQLAlchemy ORM
 - **Frontend**: Next.js 14 + React + Tailwind CSS
@@ -11,7 +11,7 @@ AI-powered scam detection with FastAPI backend, Next.js frontend, Chrome extensi
 - **Extension**: Chrome/Edge browser extension
 - **AI**: OpenAI integration for scam analysis
 
-## 📁 Repository Structure
+## Repository Structure
 
 ```
 isthisfishy/
@@ -24,7 +24,7 @@ isthisfishy/
 
 ---
 
-# 🌐 Frontend (Next.js)
+# Frontend (Next.js)
 
 Modern Next.js website for IsThisFishy with Clerk authentication, Stripe billing, and user dashboard.
 
@@ -189,7 +189,7 @@ For issues or questions, contact support@isthisfishy.com
 
 ---
 
-# 🚀 Backend (FastAPI)
+# Backend (FastAPI)
 
 ## API Endpoints (v1)
 
@@ -258,7 +258,7 @@ python scripts/verify_mode_storage.py
 
 ---
 
-# 🔧 Chrome Extension
+# Chrome Extension
 
 ## Features
 
@@ -273,7 +273,7 @@ See `extension/README.md` for setup instructions.
 
 ---
 
-# 🚢 Deployment
+# Deployment
 
 ## Backend
 - Use Docker or deploy to cloud (AWS/Azure)
@@ -291,7 +291,7 @@ See `extension/README.md` for setup instructions.
 
 ---
 
-# 📋 Development Workflow
+# Development Workflow
 
 1. **Backend**: Work in main branch
 2. **Frontend**: Work in feature branches, merge to main
@@ -300,7 +300,7 @@ See `extension/README.md` for setup instructions.
 
 ---
 
-# 🤝 Contributing
+# Contributing
 
 1. Create feature branch from `main`
 2. Make changes
